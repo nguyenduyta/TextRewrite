@@ -18,9 +18,7 @@ class ResultPanel: NSPanel {
     private var lengthPills: [NSButton] = []
 
     // Current selections
-    private var selectedTone:   String? = nil
-    private var selectedFormat: String? = nil
-    private var selectedLength: String? = nil
+    private var options = RewriteOptions()
     private var adjustVisible = false
 
     // Saved context for Replace
@@ -360,12 +358,11 @@ class ResultPanel: NSPanel {
         self.originalText = originalText
         self.savedElement = element
         self.savedRange   = range
-        self.selectedTone = defaultTone.isEmpty ? nil : defaultTone
+        options = RewriteOptions(tone: defaultTone.isEmpty ? nil : defaultTone)
 
-        tonePills.forEach   { setPillSelected($0, selected: $0.title == selectedTone) }
+        tonePills.forEach   { setPillSelected($0, selected: $0.title == options.tone) }
         formatPills.forEach { setPillSelected($0, selected: false) }
         lengthPills.forEach { setPillSelected($0, selected: false) }
-        selectedFormat = nil; selectedLength = nil
 
         if adjustVisible { setAdjustVisible(false) }
         setLoading(true)
@@ -399,42 +396,7 @@ class ResultPanel: NSPanel {
         [replaceBtn, adjustBtn, regenBtn, copyBtn].forEach { $0.alphaValue = alpha }
     }
 
-    // MARK: - Instruction builder
-
-    private func buildInstruction() -> String? {
-        var parts: [String] = []
-        if let tone = selectedTone {
-            parts.append("Rewrite in a \(tone.lowercased()) tone.")
-        }
-        if let format = selectedFormat {
-            switch format {
-            case "Email":         parts.append("Format as a professional email.")
-            case "Bullet points": parts.append("Format as a bullet point list.")
-            case "Blog post":     parts.append("Format as a blog post with a clear structure.")
-            default:              parts.append("Format as a clean paragraph.")
-            }
-        }
-        if let length = selectedLength {
-            switch length {
-            case "Short": parts.append("Keep it short and concise.")
-            case "Long":  parts.append("Make it detailed and comprehensive.")
-            default:      parts.append("Keep a medium length.")
-            }
-        }
-        guard !parts.isEmpty else { return nil }
-        return "Fix grammar, spelling, and phrasing. \(parts.joined(separator: " ")) Preserve the original language and meaning. Return only the corrected text with no explanation."
-    }
-
     // MARK: - Helpers
-
-    private func isAIQuestion(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        let clues = ["could you please","could you share","could you provide","please provide",
-                     "please clarify","i need more","got cut off","seems incomplete","missing context",
-                     "what do you mean","can you provide","what text"]
-        if clues.contains(where: { lower.contains($0) }) { return true }
-        return text.components(separatedBy: "?").count - 1 >= 2
-    }
 
     private func centerOnScreen() {
         guard let screen = NSScreen.main else { return }
@@ -446,7 +408,7 @@ class ResultPanel: NSPanel {
     private func triggerRewrite() {
         setLoading(true)
         let text = originalText
-        let instruction = buildInstruction()
+        let instruction = options.buildInstruction()
         Task {
             do {
                 let result = try await AIService.shared.rewrite(text, instruction: instruction)
@@ -477,9 +439,8 @@ class ResultPanel: NSPanel {
         SelectionMonitor.shared.suppress(for: 1.5)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        copyBtn.contentTintColor = NSColor(red: 0.4, green: 0.9, blue: 0.5, alpha: 1)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            self?.copyBtn.contentTintColor = NSColor.white.withAlphaComponent(0.7)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.orderOut(nil)
         }
     }
 
@@ -490,20 +451,20 @@ class ResultPanel: NSPanel {
 
     @objc private func tonePillTapped(_ sender: NSButton) {
         let title = sender.title
-        selectedTone = (selectedTone == title) ? nil : title
-        tonePills.forEach { setPillSelected($0, selected: $0.title == selectedTone) }
+        options.tone = (options.tone == title) ? nil : title
+        tonePills.forEach { setPillSelected($0, selected: $0.title == options.tone) }
     }
 
     @objc private func formatPillTapped(_ sender: NSButton) {
         let title = sender.title
-        selectedFormat = (selectedFormat == title) ? nil : title
-        formatPills.forEach { setPillSelected($0, selected: $0.title == selectedFormat) }
+        options.format = (options.format == title) ? nil : title
+        formatPills.forEach { setPillSelected($0, selected: $0.title == options.format) }
     }
 
     @objc private func lengthPillTapped(_ sender: NSButton) {
         let title = sender.title
-        selectedLength = (selectedLength == title) ? nil : title
-        lengthPills.forEach { setPillSelected($0, selected: $0.title == selectedLength) }
+        options.length = (options.length == title) ? nil : title
+        lengthPills.forEach { setPillSelected($0, selected: $0.title == options.length) }
     }
 
     @objc private func replaceTapped() {

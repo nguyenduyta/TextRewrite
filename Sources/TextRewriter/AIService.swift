@@ -8,7 +8,11 @@ enum AIProvider: String, CaseIterable {
 
 class AISettings {
     static let shared = AISettings()
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
 
     var provider: AIProvider {
         get { AIProvider(rawValue: defaults.string(forKey: "aiProvider") ?? "") ?? .openai }

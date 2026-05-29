@@ -1,15 +1,19 @@
 # TextRewriter
 
-A macOS menu bar app that rewrites selected text using AI (Claude API).
+A macOS menu bar app that rewrites selected text using AI (Claude, OpenAI, or Gemini).
 
 ## Features
 
-- Select any text in any app → floating "Help me rewrite" button appears
+- Select any text in any app → a floating **"Help me rewrite"** button appears near your cursor
 - AI rewrites the text with grammar, spelling, and phrasing fixes
-- Tone options: Professional, Casual, Enthusiastic, Informational, Funny
 - **Replace** — replaces the original selected text in-place
-- **Copy** — copies the rewritten text to clipboard
+- **Copy** — copies the result to clipboard and closes
 - **Regenerate** — generates a new variation
+- **Adjust** — expand a panel to fine-tune the rewrite with:
+  - **Tone**: Professional · Casual · Enthusiastic · Informational · Funny
+  - **Format**: Paragraph · Email · Bullet points · Blog post
+  - **Length**: Short · Medium · Long
+- Set a **default tone** in Settings — applied automatically on every rewrite
 - Runs as a background app (menu bar only, no Dock icon)
 
 ## Installation
@@ -39,8 +43,15 @@ TextRewriter needs Accessibility access to detect selected text across apps:
 ### Configure your API key
 
 1. Click the ✦ icon in the menu bar → **Settings**
-2. Enter your **Claude API key** (get one at [console.anthropic.com](https://console.anthropic.com))
-3. Choose your preferred model
+2. Choose your **AI Provider** (Anthropic Claude, OpenAI, or Google Gemini)
+3. Enter your API key for the selected provider
+4. Optionally set a **Default Tone** to apply on every rewrite
+
+| Provider | Where to get a key |
+|---|---|
+| Anthropic Claude | [console.anthropic.com](https://console.anthropic.com) |
+| OpenAI | [platform.openai.com](https://platform.openai.com) |
+| Google Gemini | [aistudio.google.com](https://aistudio.google.com) |
 
 ## Usage
 
@@ -49,15 +60,15 @@ TextRewriter needs Accessibility access to detect selected text across apps:
 3. Wait a moment for the AI to generate a suggestion
 4. Choose an action:
    - **Replace** — overwrites your original selection with the rewritten text
-   - **Copy** — copies the result to your clipboard
-   - **Regenerate** — generates a new variation
-   - Tone pills (Professional / Casual / etc.) — rewrite with a specific tone
+   - **Copy** — copies the result to clipboard and closes the panel
+   - **Regenerate ↺** — generates a new variation (uses current Adjust settings)
+   - **Adjust ⚙** — opens a panel to pick Tone, Format, and Length, then click **↺** to apply
 
 ## Requirements
 
 - macOS 13 Ventura or later
 - Apple Silicon or Intel Mac
-- Claude API key
+- API key for at least one supported AI provider
 
 ## Build from source
 
@@ -82,8 +93,8 @@ Sources/TextRewriter/
 ├── AppDelegate.swift             # Menu bar setup, monitor wiring
 ├── SelectionMonitor.swift        # AX-based text selection detection
 ├── FloatingButtonPanel.swift     # "Help me rewrite" popup button
-├── ResultPanel.swift             # AI result panel (Replace / Copy / Rewrite)
-├── AIService.swift               # Claude API integration
+├── ResultPanel.swift             # AI result panel (Replace / Copy / Adjust / Regen)
+├── AIService.swift               # AI provider integration (Claude / OpenAI / Gemini)
 └── SettingsWindowController.swift
 Assets/
 ├── AppIcon.icns                  # App icon
