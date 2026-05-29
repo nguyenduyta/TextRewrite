@@ -20,6 +20,8 @@ class ResultPanel: NSPanel {
     // Current selections
     private var options = RewriteOptions()
     private var adjustVisible = false
+    private var streamBuffer = ""
+    private var isFirstChunk = true
 
     // Saved context for Replace
     var savedElement: AXUIElement?
@@ -371,14 +373,41 @@ class ResultPanel: NSPanel {
     }
 
     func setResult(_ text: String) {
-        textView.textColor = .white
+        let attrs: [NSAttributedString.Key: Any] = [.foregroundColor: NSColor.white, .font: NSFont.systemFont(ofSize: 13.5)]
+        textView.typingAttributes = attrs
         textView.string = isAIQuestion(text) ? originalText : text
         setLoading(false)
     }
 
+    func appendChunk(_ chunk: String) {
+        if isFirstChunk {
+            isFirstChunk = false
+            streamBuffer = ""
+            textView.typingAttributes = [.foregroundColor: NSColor.white, .font: NSFont.systemFont(ofSize: 13.5)]
+            textView.string = ""
+        }
+        streamBuffer += chunk
+        textView.textStorage?.append(NSAttributedString(string: chunk, attributes: [
+            .foregroundColor: NSColor.white,
+            .font: NSFont.systemFont(ofSize: 13.5),
+        ]))
+        let end = (textView.string as NSString).length
+        textView.scrollRangeToVisible(NSRange(location: end, length: 0))
+    }
+
+    func finishStreaming() {
+        if isAIQuestion(streamBuffer) {
+            textView.typingAttributes = [.foregroundColor: NSColor.white, .font: NSFont.systemFont(ofSize: 13.5)]
+            textView.string = originalText
+        }
+        isFirstChunk = true
+        setLoading(false)
+    }
+
     func setError(_ message: String) {
-        textView.textColor = .white
+        textView.typingAttributes = [.foregroundColor: NSColor.white, .font: NSFont.systemFont(ofSize: 13.5)]
         textView.string = originalText
+        isFirstChunk = true
         setLoading(false)
     }
 
@@ -407,14 +436,17 @@ class ResultPanel: NSPanel {
 
     private func triggerRewrite() {
         setLoading(true)
+        isFirstChunk = true
         let text = originalText
         let instruction = options.buildInstruction()
         Task {
             do {
-                let result = try await AIService.shared.rewrite(text, instruction: instruction)
-                await MainActor.run { setResult(result) }
+                try await AIService.shared.rewriteStreaming(text, instruction: instruction) { [weak self] chunk in
+                    await MainActor.run { self?.appendChunk(chunk) }
+                }
+                await MainActor.run { [weak self] in self?.finishStreaming() }
             } catch {
-                await MainActor.run { setError(error.localizedDescription) }
+                await MainActor.run { [weak self] in self?.setError(error.localizedDescription) }
             }
         }
     }

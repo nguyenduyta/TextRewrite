@@ -12,6 +12,17 @@ class AISettings {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        migrateKeysToKeychain()
+    }
+
+    // Migrate existing UserDefaults keys to Keychain on first run
+    private func migrateKeysToKeychain() {
+        for key in ["openAIKey", "geminiKey", "claudeKey"] {
+            if let val = defaults.string(forKey: key), !val.isEmpty {
+                if Keychain.load(key).isEmpty { Keychain.save(key, value: val) }
+                defaults.removeObject(forKey: key)
+            }
+        }
     }
 
     var provider: AIProvider {
@@ -19,18 +30,17 @@ class AISettings {
         set { defaults.set(newValue.rawValue, forKey: "aiProvider") }
     }
     var openAIKey: String {
-        get { defaults.string(forKey: "openAIKey") ?? "" }
-        set { defaults.set(newValue, forKey: "openAIKey") }
+        get { Keychain.load("openAIKey") }
+        set { Keychain.save("openAIKey", value: newValue) }
     }
     var geminiKey: String {
-        get { defaults.string(forKey: "geminiKey") ?? "" }
-        set { defaults.set(newValue, forKey: "geminiKey") }
+        get { Keychain.load("geminiKey") }
+        set { Keychain.save("geminiKey", value: newValue) }
     }
     var claudeKey: String {
-        get { defaults.string(forKey: "claudeKey") ?? "" }
-        set { defaults.set(newValue, forKey: "claudeKey") }
+        get { Keychain.load("claudeKey") }
+        set { Keychain.save("claudeKey", value: newValue) }
     }
-    // Empty string = no default (plain grammar fix)
     var defaultTone: String {
         get { defaults.string(forKey: "defaultTone") ?? "" }
         set { defaults.set(newValue, forKey: "defaultTone") }
@@ -55,64 +65,35 @@ class AIService {
     static let shared = AIService()
     private init() {}
 
-    func rewrite(_ text: String, instruction: String? = nil) async throws -> String {
-        let s = AISettings.shared
-        switch s.provider {
-        case .openai:  return try await callOpenAI(text, instruction: instruction, key: s.openAIKey)
-        case .gemini:  return try await callGemini(text, instruction: instruction, key: s.geminiKey)
-        case .claude:  return try await callClaude(text, instruction: instruction, key: s.claudeKey)
-        }
-    }
+    // MARK: - Prompt
 
     private func prompt(_ text: String, instruction: String?) -> String {
-        let base = instruction ?? """
-            Fix grammar, spelling, and phrasing of the following text. \
-            Preserve the original meaning and language (do not translate). \
-            Return only the corrected text with no explanation.
-            """
+        let base = instruction ?? "Fix grammar, spelling, and phrasing of the following text. Preserve the original meaning and language (do not translate). Return only the corrected text with no explanation."
         return "\(base)\n\nText:\n\(text)"
     }
 
-    // MARK: - OpenAI
-    private func callOpenAI(_ text: String, instruction: String?, key: String) async throws -> String {
-        guard !key.isEmpty else { throw AIError.missingKey("OpenAI") }
-        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
-        req.httpMethod = "POST"
-        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "model": "gpt-4o-mini",
-            "messages": [["role": "user", "content": prompt(text, instruction: instruction)]],
-            "max_tokens": 1500,
-        ])
-        let (data, _) = try await URLSession.shared.data(for: req)
-        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        if let err = (json["error"] as? [String: Any])?["message"] as? String { throw AIError.apiError(err) }
-        guard let content = ((json["choices"] as? [[String: Any]])?.first?["message"] as? [String: Any])?["content"] as? String
-        else { throw AIError.badResponse }
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+    // MARK: - Non-streaming (accumulates chunks)
+
+    func rewrite(_ text: String, instruction: String? = nil) async throws -> String {
+        var result = ""
+        try await rewriteStreaming(text, instruction: instruction) { chunk in result += chunk }
+        return result
     }
 
-    // MARK: - Gemini
-    private func callGemini(_ text: String, instruction: String?, key: String) async throws -> String {
-        guard !key.isEmpty else { throw AIError.missingKey("Google Gemini") }
-        let urlStr = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=\(key)"
-        var req = URLRequest(url: URL(string: urlStr)!)
-        req.httpMethod = "POST"
-        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.httpBody = try JSONSerialization.data(withJSONObject: [
-            "contents": [["parts": [["text": prompt(text, instruction: instruction)]]]],
-        ])
-        let (data, _) = try await URLSession.shared.data(for: req)
-        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        if let err = (json["error"] as? [String: Any])?["message"] as? String { throw AIError.apiError(err) }
-        guard let result = (((json["candidates"] as? [[String: Any]])?.first?["content"] as? [String: Any])?["parts"] as? [[String: Any]])?.first?["text"] as? String
-        else { throw AIError.badResponse }
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    // MARK: - Streaming
+
+    func rewriteStreaming(_ text: String, instruction: String?, onChunk: @escaping (String) async -> Void) async throws {
+        let s = AISettings.shared
+        switch s.provider {
+        case .openai: try await streamOpenAI(text, instruction: instruction, key: s.openAIKey, onChunk: onChunk)
+        case .gemini: try await streamGemini(text, instruction: instruction, key: s.geminiKey, onChunk: onChunk)
+        case .claude: try await streamClaude(text, instruction: instruction, key: s.claudeKey, onChunk: onChunk)
+        }
     }
 
     // MARK: - Claude
-    private func callClaude(_ text: String, instruction: String?, key: String) async throws -> String {
+
+    private func streamClaude(_ text: String, instruction: String?, key: String, onChunk: @escaping (String) async -> Void) async throws {
         guard !key.isEmpty else { throw AIError.missingKey("Anthropic Claude") }
         var req = URLRequest(url: URL(string: "https://api.anthropic.com/v1/messages")!)
         req.httpMethod = "POST"
@@ -122,13 +103,73 @@ class AIService {
         req.httpBody = try JSONSerialization.data(withJSONObject: [
             "model": "claude-haiku-4-5-20251001",
             "max_tokens": 1500,
+            "stream": true,
             "messages": [["role": "user", "content": prompt(text, instruction: instruction)]],
         ])
-        let (data, _) = try await URLSession.shared.data(for: req)
-        let json = try JSONSerialization.jsonObject(with: data) as! [String: Any]
-        if let err = (json["error"] as? [String: Any])?["message"] as? String { throw AIError.apiError(err) }
-        guard let content = (json["content"] as? [[String: Any]])?.first?["text"] as? String
-        else { throw AIError.badResponse }
-        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let (bytes, _) = try await URLSession.shared.bytes(for: req)
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data: "),
+                  let data  = line.dropFirst(6).data(using: .utf8),
+                  let obj   = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  (obj["type"] as? String) == "content_block_delta",
+                  let delta = obj["delta"] as? [String: Any],
+                  let chunk = delta["text"] as? String
+            else { continue }
+            await onChunk(chunk)
+        }
+    }
+
+    // MARK: - OpenAI
+
+    private func streamOpenAI(_ text: String, instruction: String?, key: String, onChunk: @escaping (String) async -> Void) async throws {
+        guard !key.isEmpty else { throw AIError.missingKey("OpenAI") }
+        var req = URLRequest(url: URL(string: "https://api.openai.com/v1/chat/completions")!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": "gpt-4o-mini",
+            "stream": true,
+            "messages": [["role": "user", "content": prompt(text, instruction: instruction)]],
+            "max_tokens": 1500,
+        ])
+        let (bytes, _) = try await URLSession.shared.bytes(for: req)
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data: ") else { continue }
+            let json = String(line.dropFirst(6))
+            if json == "[DONE]" { break }
+            guard let data    = json.data(using: .utf8),
+                  let obj     = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let choices = obj["choices"] as? [[String: Any]],
+                  let delta   = choices.first?["delta"] as? [String: Any],
+                  let chunk   = delta["content"] as? String
+            else { continue }
+            await onChunk(chunk)
+        }
+    }
+
+    // MARK: - Gemini
+
+    private func streamGemini(_ text: String, instruction: String?, key: String, onChunk: @escaping (String) async -> Void) async throws {
+        guard !key.isEmpty else { throw AIError.missingKey("Google Gemini") }
+        let urlStr = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?alt=sse&key=\(key)"
+        var req = URLRequest(url: URL(string: urlStr)!)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: [
+            "contents": [["parts": [["text": prompt(text, instruction: instruction)]]]],
+        ])
+        let (bytes, _) = try await URLSession.shared.bytes(for: req)
+        for try await line in bytes.lines {
+            guard line.hasPrefix("data: "),
+                  let data       = line.dropFirst(6).data(using: .utf8),
+                  let obj        = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let candidates = obj["candidates"] as? [[String: Any]],
+                  let content    = candidates.first?["content"] as? [String: Any],
+                  let parts      = content["parts"] as? [[String: Any]],
+                  let chunk      = parts.first?["text"] as? String
+            else { continue }
+            await onChunk(chunk)
+        }
     }
 }

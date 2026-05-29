@@ -85,12 +85,15 @@ class FloatingButtonPanel: NSPanel {
         hide()
         resultPanel.show(originalText: text, element: element, range: range, defaultTone: tone)
 
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             do {
-                let result = try await AIService.shared.rewrite(text, instruction: instruction)
-                await MainActor.run { resultPanel.setResult(result) }
+                try await AIService.shared.rewriteStreaming(text, instruction: instruction) { chunk in
+                    await MainActor.run { self.resultPanel.appendChunk(chunk) }
+                }
+                await MainActor.run { self.resultPanel.finishStreaming() }
             } catch {
-                await MainActor.run { resultPanel.setError(error.localizedDescription) }
+                await MainActor.run { self.resultPanel.setError(error.localizedDescription) }
             }
         }
     }
