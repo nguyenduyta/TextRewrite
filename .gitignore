@@ -1,0 +1,19 @@
+# Build artifacts
+.build/
+dist/
+
+# Swift Package Manager
+.swiftpm/
+*.resolved
+
+# macOS
+.DS_Store
+*.xcuserstate
+
+# Logs
+/tmp/textrewriter.log
+
+# Secrets (never commit API keys)
+*.env
+.env*
+Config.swift
