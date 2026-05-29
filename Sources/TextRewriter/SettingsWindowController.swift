@@ -41,9 +41,8 @@ class SettingsWindowController: NSObject {
         let vc = SettingsViewController()
         let w = NSWindow(contentViewController: vc)
         w.title = "Text Rewriter — Settings"
-        w.styleMask = [.titled, .closable, .resizable]
-        w.setContentSize(NSSize(width: 480, height: 500))
-        w.minSize = NSSize(width: 440, height: 400)
+        w.styleMask = [.titled, .closable]
+        w.setContentSize(NSSize(width: 440, height: 340))
         w.isReleasedWhenClosed = false
         return w
     }
@@ -53,7 +52,7 @@ class SettingsViewController: NSViewController {
     private let s = AISettings.shared
 
     override func loadView() {
-        view = NSView(frame: NSRect(x: 0, y: 0, width: 480, height: 500))
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 340))
     }
 
     override func viewDidLoad() {
@@ -61,67 +60,79 @@ class SettingsViewController: NSViewController {
         buildUI()
     }
 
+    private static let tones = ["None", "Professional", "Casual", "Enthusiastic", "Informational", "Funny"]
+
     private func buildUI() {
-        // Outer scroll view so content is reachable on small screens
-        let outerScroll = NSScrollView()
-        outerScroll.hasVerticalScroller = true
-        outerScroll.autohidesScrollers = true
-        outerScroll.borderType = .noBorder
-        outerScroll.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(outerScroll)
-        NSLayoutConstraint.activate([
-            outerScroll.topAnchor.constraint(equalTo: view.topAnchor),
-            outerScroll.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            outerScroll.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            outerScroll.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-
-        let container = NSView()
-        container.translatesAutoresizingMaskIntoConstraints = false
-        outerScroll.documentView = container
-
         let stack = NSStackView()
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 12
+        stack.spacing = 8
         stack.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(stack)
+        view.addSubview(stack)
 
         NSLayoutConstraint.activate([
-            stack.topAnchor.constraint(equalTo: container.topAnchor, constant: 20),
-            stack.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 24),
-            stack.trailingAnchor.constraint(equalTo: container.trailingAnchor, constant: -24),
-            stack.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -20),
-            container.widthAnchor.constraint(equalTo: outerScroll.widthAnchor),
+            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 20),
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
         ])
 
-        // Provider picker
-        stack.addArrangedSubview(sectionLabel("AI Provider"))
-        let picker = NSPopUpButton()
-        picker.addItems(withTitles: AIProvider.allCases.map { $0.rawValue })
-        picker.selectItem(withTitle: s.provider.rawValue)
-        picker.target = self
-        picker.action = #selector(providerChanged(_:))
-        picker.translatesAutoresizingMaskIntoConstraints = false
-        stack.addArrangedSubview(picker)
-        picker.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        NSLayoutConstraint.activate([picker.widthAnchor.constraint(equalTo: stack.widthAnchor)])
+        func row(_ label: String, _ control: NSView) {
+            stack.addArrangedSubview(sectionLabel(label))
+            stack.addArrangedSubview(control)
+            NSLayoutConstraint.activate([control.widthAnchor.constraint(equalTo: stack.widthAnchor)])
+            stack.setCustomSpacing(4, after: sectionLabel(label))
+        }
 
-        stack.addArrangedSubview(sectionLabel("OpenAI API Key"))
-        stack.addArrangedSubview(keyField(placeholder: "sk-...", value: s.openAIKey, tag: 0))
+        // AI Provider
+        let providerPicker = NSPopUpButton()
+        providerPicker.addItems(withTitles: AIProvider.allCases.map { $0.rawValue })
+        providerPicker.selectItem(withTitle: s.provider.rawValue)
+        providerPicker.target = self; providerPicker.action = #selector(providerChanged(_:))
+        providerPicker.translatesAutoresizingMaskIntoConstraints = false
 
-        stack.addArrangedSubview(sectionLabel("Google Gemini API Key"))
-        stack.addArrangedSubview(keyField(placeholder: "AIza...", value: s.geminiKey, tag: 1))
+        let lProvider = sectionLabel("AI Provider")
+        stack.addArrangedSubview(lProvider)
+        stack.addArrangedSubview(providerPicker)
+        NSLayoutConstraint.activate([providerPicker.widthAnchor.constraint(equalTo: stack.widthAnchor)])
+        stack.setCustomSpacing(4, after: lProvider)
+        stack.setCustomSpacing(14, after: providerPicker)
 
-        stack.addArrangedSubview(sectionLabel("Anthropic Claude API Key"))
-        stack.addArrangedSubview(keyField(placeholder: "sk-ant-...", value: s.claudeKey, tag: 2))
+        // Default Tone
+        let tonePicker = NSPopUpButton()
+        tonePicker.addItems(withTitles: SettingsViewController.tones)
+        let savedTone = s.defaultTone.isEmpty ? "None" : s.defaultTone
+        tonePicker.selectItem(withTitle: savedTone)
+        tonePicker.target = self; tonePicker.action = #selector(toneChanged(_:))
+        tonePicker.translatesAutoresizingMaskIntoConstraints = false
 
-        let note = NSTextField(wrappingLabelWithString: "Keys are stored in macOS UserDefaults (not Keychain). For better security, consider using environment variables.")
+        let lTone = sectionLabel("Default Tone")
+        stack.addArrangedSubview(lTone)
+        stack.addArrangedSubview(tonePicker)
+        NSLayoutConstraint.activate([tonePicker.widthAnchor.constraint(equalTo: stack.widthAnchor)])
+        stack.setCustomSpacing(4, after: lTone)
+        stack.setCustomSpacing(14, after: tonePicker)
+
+        // API Keys
+        for (label, placeholder, tag) in [
+            ("OpenAI API Key",          "sk-...",      0),
+            ("Google Gemini API Key",   "AIza...",     1),
+            ("Anthropic Claude API Key","sk-ant-...",  2),
+        ] {
+            let value = [s.openAIKey, s.geminiKey, s.claudeKey][tag]
+            let l = sectionLabel(label)
+            let f = keyField(placeholder: placeholder, value: value, tag: tag)
+            stack.addArrangedSubview(l)
+            stack.addArrangedSubview(f)
+            NSLayoutConstraint.activate([f.widthAnchor.constraint(equalTo: stack.widthAnchor)])
+            stack.setCustomSpacing(4, after: l)
+            stack.setCustomSpacing(10, after: f)
+        }
+
+        let note = NSTextField(labelWithString: "Keys are stored in macOS UserDefaults.")
         note.font = .systemFont(ofSize: 11)
-        note.textColor = .secondaryLabelColor
+        note.textColor = .tertiaryLabelColor
         note.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(note)
-        NSLayoutConstraint.activate([note.widthAnchor.constraint(equalTo: stack.widthAnchor)])
     }
 
     private func sectionLabel(_ text: String) -> NSTextField {
@@ -130,42 +141,15 @@ class SettingsViewController: NSViewController {
         return l
     }
 
-    private func keyField(placeholder: String, value: String, tag: Int) -> NSScrollView {
-        let scrollView = NSScrollView()
-        scrollView.hasVerticalScroller = false
-        scrollView.hasHorizontalScroller = false
-        scrollView.autohidesScrollers = true
-        scrollView.borderType = .bezelBorder
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        let textView = TaggedTextView()
-        textView.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        textView.isEditable = true
-        textView.isSelectable = true
-        textView.isRichText = false
-        textView.importsGraphics = false
-        textView.allowsUndo = true
-        textView.textContainer?.widthTracksTextView = true
-        textView.textContainer?.containerSize = NSSize(width: 390, height: CGFloat.greatestFiniteMagnitude)
-        textView.isHorizontallyResizable = false
-        textView.isVerticallyResizable = true
-        textView.autoresizingMask = [.width]
-
-        if value.isEmpty {
-            textView.string = ""
-            textView.setPlaceholder(placeholder)
-        } else {
-            textView.string = value
-        }
-
-        textView.fieldTag = tag
-        textView.delegate = self
-
-        scrollView.documentView = textView
-        scrollView.heightAnchor.constraint(equalToConstant: 62).isActive = true
-        scrollView.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        scrollView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        return scrollView
+    private func keyField(placeholder: String, value: String, tag: Int) -> NSSecureTextField {
+        let field = NSSecureTextField()
+        field.placeholderString = placeholder
+        field.stringValue = value
+        field.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
+        field.tag = tag
+        field.delegate = self
+        field.translatesAutoresizingMaskIntoConstraints = false
+        return field
     }
 
     @objc private func providerChanged(_ sender: NSPopUpButton) {
@@ -173,10 +157,11 @@ class SettingsViewController: NSViewController {
             s.provider = p
         }
     }
-}
 
-class TaggedTextView: NSTextView {
-    var fieldTag: Int = 0
+    @objc private func toneChanged(_ sender: NSPopUpButton) {
+        let title = sender.selectedItem?.title ?? "None"
+        s.defaultTone = (title == "None") ? "" : title
+    }
 }
 
 extension SettingsWindowController: NSWindowDelegate {
@@ -185,36 +170,15 @@ extension SettingsWindowController: NSWindowDelegate {
     }
 }
 
-extension SettingsViewController: NSTextViewDelegate {
-    func textDidChange(_ notification: Notification) {
-        guard let tv = notification.object as? TaggedTextView else { return }
-        let value = tv.string
-        switch tv.fieldTag {
+extension SettingsViewController: NSTextFieldDelegate {
+    func controlTextDidChange(_ obj: Notification) {
+        guard let field = obj.object as? NSTextField else { return }
+        let value = field.stringValue
+        switch field.tag {
         case 0: s.openAIKey = value
         case 1: s.geminiKey = value
         case 2: s.claudeKey = value
         default: break
         }
-    }
-}
-
-extension NSTextView {
-    func setPlaceholder(_ text: String) {
-        let ph = NSTextField(labelWithString: text)
-        ph.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
-        ph.textColor = .placeholderTextColor
-        ph.tag = -999
-        ph.isEditable = false
-        ph.isSelectable = false
-        ph.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(ph)
-        NSLayoutConstraint.activate([
-            ph.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
-            ph.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-        ])
-    }
-
-    func removePlaceholderIfNeeded() {
-        subviews.first(where: { ($0 as? NSTextField)?.tag == -999 })?.removeFromSuperview()
     }
 }

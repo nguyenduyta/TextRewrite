@@ -26,6 +26,11 @@ class AISettings {
         get { defaults.string(forKey: "claudeKey") ?? "" }
         set { defaults.set(newValue, forKey: "claudeKey") }
     }
+    // Empty string = no default (plain grammar fix)
+    var defaultTone: String {
+        get { defaults.string(forKey: "defaultTone") ?? "" }
+        set { defaults.set(newValue, forKey: "defaultTone") }
+    }
 }
 
 enum AIError: Error, LocalizedError {

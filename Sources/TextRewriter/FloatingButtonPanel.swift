@@ -76,22 +76,21 @@ class FloatingButtonPanel: NSPanel {
 
     @objc private func rewriteTapped() {
         // Capture element + range BEFORE anything changes focus
-        let element = SelectionMonitor.shared.focusedElement
-        let range   = SelectionMonitor.shared.savedRange
-        let text    = selectedText
+        let element  = SelectionMonitor.shared.focusedElement
+        let range    = SelectionMonitor.shared.savedRange
+        let text     = selectedText
+        let tone     = AISettings.shared.defaultTone   // "" = no default
+        let instruction: String? = tone.isEmpty ? nil :
+            "Fix grammar, spelling, and phrasing. Rewrite in a \(tone.lowercased()) tone. Preserve the original language and meaning. Return only the corrected text with no explanation."
         hide()
-        resultPanel.show(originalText: text, element: element, range: range)
+        resultPanel.show(originalText: text, element: element, range: range, defaultTone: tone)
 
         Task {
             do {
-                let result = try await AIService.shared.rewrite(text)
-                await MainActor.run {
-                    resultPanel.setResult(result)
-                }
+                let result = try await AIService.shared.rewrite(text, instruction: instruction)
+                await MainActor.run { resultPanel.setResult(result) }
             } catch {
-                await MainActor.run {
-                    resultPanel.setError(error.localizedDescription)
-                }
+                await MainActor.run { resultPanel.setError(error.localizedDescription) }
             }
         }
     }
