@@ -17,6 +17,7 @@ class SelectionMonitor {
     private(set) var savedRange: CFRange = CFRange(location: kCFNotFound, length: 0)
 
     private var suppressedUntil: Date = .distantPast
+    private var mouseMonitor: Any?
 
     func suppress(for duration: TimeInterval = 2.0) {
         suppressedUntil = Date().addingTimeInterval(duration)
@@ -34,12 +35,20 @@ class SelectionMonitor {
         if let app = NSWorkspace.shared.frontmostApplication {
             observeApp(pid: app.processIdentifier)
         }
+
+        // Fallback for apps that don't fire AX notifications (e.g. VS Code / Electron)
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseUp) { [weak self] _ in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                self?.checkSelection()
+            }
+        }
     }
 
     func stop() {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         removeAppObserver()
         removeElementObserver()
+        if let m = mouseMonitor { NSEvent.removeMonitor(m); mouseMonitor = nil }
     }
 
     @objc private func activeAppChanged(_ notification: Notification) {
@@ -118,30 +127,46 @@ class SelectionMonitor {
 
     private func checkSelection() {
         guard Date() >= suppressedUntil else { return }
-        guard let element = observedElement else { return }
 
+        // Try observedElement first, then frontmost app's focused element as fallback.
+        // This matters for Electron apps (e.g. VS Code) where the subscribed element may
+        // not expose kAXSelectedTextAttribute reliably when polled.
+        if let result = selectedText(from: observedElement) {
+            commit(result); return
+        }
+        if let pid = NSWorkspace.shared.frontmostApplication?.processIdentifier {
+            let appEl = AXUIElementCreateApplication(pid)
+            var ref: CFTypeRef?
+            if AXUIElementCopyAttributeValue(appEl, kAXFocusedUIElementAttribute as CFString, &ref) == .success,
+               let focused = ref {
+                if let result = selectedText(from: (focused as! AXUIElement)) {
+                    commit(result); return
+                }
+            }
+        }
+        clearIfNeeded()
+    }
+
+    private func selectedText(from element: AXUIElement?) -> (element: AXUIElement, text: String, range: CFRange)? {
+        guard let element else { return nil }
         var textRef: CFTypeRef?
         guard AXUIElementCopyAttributeValue(element, kAXSelectedTextAttribute as CFString, &textRef) == .success,
               let text = textRef as? String,
-              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            clearIfNeeded(); return
-        }
-
-        var settable: DarwinBoolean = false
-        AXUIElementIsAttributeSettable(element, kAXSelectedTextAttribute as CFString, &settable)
-        guard settable.boolValue else { clearIfNeeded(); return }
-
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        var range = CFRange(location: kCFNotFound, length: 0)
         var rangeRef: CFTypeRef?
         if AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &rangeRef) == .success,
            let axVal = rangeRef {
-            var r = CFRange(location: 0, length: 0)
-            AXValueGetValue(axVal as! AXValue, AXValueType(rawValue: 4)!, &r)
-            savedRange = r
+            AXValueGetValue(axVal as! AXValue, AXValueType(rawValue: 4)!, &range)
         }
+        return (element, text, range)
+    }
 
-        focusedElement = element
-        currentText = text
-        onTextSelected?(text, NSEvent.mouseLocation)
+    private func commit(_ result: (element: AXUIElement, text: String, range: CFRange)) {
+        focusedElement = result.element
+        savedRange     = result.range
+        currentText    = result.text
+        onTextSelected?(result.text, NSEvent.mouseLocation)
     }
 
     private func clearIfNeeded() {

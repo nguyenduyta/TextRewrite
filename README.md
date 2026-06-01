@@ -2,6 +2,8 @@
 
 A macOS menu bar app that rewrites selected text using AI (Claude, OpenAI, or Gemini).
 
+<img src="docs/demo.gif" controls width="100%"></img>
+
 ## Features
 
 - Select any text in any app → a floating **"Help me rewrite"** button appears near your cursor

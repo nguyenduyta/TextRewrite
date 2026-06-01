@@ -35,8 +35,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func setupMonitor() {
         monitor.onTextSelected = { [weak self] text, point in
-            DispatchQueue.main.async {
-                self?.buttonPanel.show(near: point, with: text)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                let current = SelectionMonitor.shared.currentText
+                guard !current.isEmpty else { return }
+                self?.buttonPanel.show(near: point, with: current)
             }
         }
         monitor.onSelectionCleared = { [weak self] in
