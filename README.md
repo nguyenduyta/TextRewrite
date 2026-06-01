@@ -7,7 +7,7 @@ A macOS menu bar app that rewrites selected text using AI (Claude, OpenAI, or Ge
 ## Features
 
 - Select any text in any app → a floating **"Help me rewrite"** button appears near your cursor
-- AI rewrites the text with grammar, spelling, and phrasing fixes
+- AI rewrites the text with grammar, spelling, and phrasing fixes — streamed character by character
 - **Replace** — replaces the original selected text in-place
 - **Copy** — copies the result to clipboard and closes
 - **Regenerate** — generates a new variation
@@ -16,6 +16,8 @@ A macOS menu bar app that rewrites selected text using AI (Claude, OpenAI, or Ge
   - **Format**: Paragraph · Email · Bullet points · Blog post
   - **Length**: Short · Medium · Long
 - Set a **default tone** in Settings — applied automatically on every rewrite
+- **Hotkey mode** — assign a keyboard shortcut (e.g. ⌘⌥R); button won't auto-appear, press the hotkey to open the rewrite panel directly
+- API keys stored securely in **macOS Keychain**
 - Runs as a background app (menu bar only, no Dock icon)
 
 ## Installation
@@ -104,3 +106,7 @@ Assets/
 build.sh                          # Build → dist/TextRewriter.app
 release.sh                        # Build + sign + zip for distribution
 ```
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.

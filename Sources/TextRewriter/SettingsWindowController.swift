@@ -26,9 +26,9 @@ class SettingsWindowController: NSObject {
         mainMenu.addItem(appItem)
 
         let editMenu = NSMenu(title: "Edit")
-        editMenu.addItem(NSMenuItem(title: "Cut",   action: #selector(NSText.cut(_:)),   keyEquivalent: "x"))
-        editMenu.addItem(NSMenuItem(title: "Copy",  action: #selector(NSText.copy(_:)),  keyEquivalent: "c"))
-        editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "Cut",        action: #selector(NSText.cut(_:)),       keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: "Copy",       action: #selector(NSText.copy(_:)),      keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "Paste",      action: #selector(NSText.paste(_:)),     keyEquivalent: "v"))
         editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
         let editItem = NSMenuItem(title: "Edit", action: nil, keyEquivalent: "")
         editItem.submenu = editMenu
@@ -42,17 +42,21 @@ class SettingsWindowController: NSObject {
         let w = NSWindow(contentViewController: vc)
         w.title = "Text Rewriter — Settings"
         w.styleMask = [.titled, .closable]
-        w.setContentSize(NSSize(width: 440, height: 340))
+        w.setContentSize(NSSize(width: 440, height: 420))
         w.isReleasedWhenClosed = false
         return w
     }
 }
 
+// MARK: - ViewController
+
 class SettingsViewController: NSViewController {
     private let s = AISettings.shared
+    private var recorderRow: NSView?
+    private var recorder: HotkeyRecorderButton?
 
     override func loadView() {
-        view = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 340))
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 420))
     }
 
     override func viewDidLoad() {
@@ -76,14 +80,7 @@ class SettingsViewController: NSViewController {
             stack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
         ])
 
-        func row(_ label: String, _ control: NSView) {
-            stack.addArrangedSubview(sectionLabel(label))
-            stack.addArrangedSubview(control)
-            NSLayoutConstraint.activate([control.widthAnchor.constraint(equalTo: stack.widthAnchor)])
-            stack.setCustomSpacing(4, after: sectionLabel(label))
-        }
-
-        // AI Provider
+        // ── AI Provider ──────────────────────────────────────────────
         let providerPicker = NSPopUpButton()
         providerPicker.addItems(withTitles: AIProvider.allCases.map { $0.rawValue })
         providerPicker.selectItem(withTitle: s.provider.rawValue)
@@ -97,7 +94,7 @@ class SettingsViewController: NSViewController {
         stack.setCustomSpacing(4, after: lProvider)
         stack.setCustomSpacing(14, after: providerPicker)
 
-        // Default Tone
+        // ── Default Tone ─────────────────────────────────────────────
         let tonePicker = NSPopUpButton()
         tonePicker.addItems(withTitles: SettingsViewController.tones)
         let savedTone = s.defaultTone.isEmpty ? "None" : s.defaultTone
@@ -112,11 +109,60 @@ class SettingsViewController: NSViewController {
         stack.setCustomSpacing(4, after: lTone)
         stack.setCustomSpacing(14, after: tonePicker)
 
-        // API Keys
+        // ── Hotkey ───────────────────────────────────────────────────
+        let divider = NSBox()
+        divider.boxType = .separator
+        divider.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(divider)
+        NSLayoutConstraint.activate([divider.widthAnchor.constraint(equalTo: stack.widthAnchor)])
+        stack.setCustomSpacing(10, after: divider)
+
+        let hotkeyToggle = NSButton(checkboxWithTitle: "  Enable hotkey to trigger button", target: self, action: #selector(hotkeyToggleChanged(_:)))
+        hotkeyToggle.state = s.hotkeyEnabled ? .on : .off
+        hotkeyToggle.translatesAutoresizingMaskIntoConstraints = false
+        stack.addArrangedSubview(hotkeyToggle)
+        stack.setCustomSpacing(8, after: hotkeyToggle)
+
+        // Hotkey recorder row
+        let row = NSStackView()
+        row.orientation = .horizontal
+        row.spacing = 10
+        row.translatesAutoresizingMaskIntoConstraints = false
+
+        let lHotkey = sectionLabel("Shortcut")
+        lHotkey.setContentHuggingPriority(.required, for: .horizontal)
+
+        let rec = HotkeyRecorderButton()
+        if s.hotkeyKeyCode > 0 {
+            let mods = NSEvent.ModifierFlags(rawValue: s.hotkeyModifiers)
+            rec.display(keyCode: s.hotkeyKeyCode, modifiers: mods)
+        }
+        rec.onRecorded = { [weak self] keyCode, modifiers in
+            guard let self else { return }
+            self.s.hotkeyKeyCode = keyCode
+            self.s.hotkeyModifiers = modifiers.rawValue
+            self.recorder?.display(keyCode: keyCode, modifiers: modifiers)
+            (NSApp.delegate as? AppDelegate)?.refreshHotkey()
+        }
+        rec.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([rec.widthAnchor.constraint(greaterThanOrEqualToConstant: 130)])
+
+        row.addArrangedSubview(lHotkey)
+        row.addArrangedSubview(rec)
+
+        stack.addArrangedSubview(row)
+        NSLayoutConstraint.activate([row.widthAnchor.constraint(equalTo: stack.widthAnchor)])
+        stack.setCustomSpacing(14, after: row)
+
+        row.isHidden = !s.hotkeyEnabled
+        self.recorderRow = row
+        self.recorder = rec
+
+        // ── API Keys ─────────────────────────────────────────────────
         for (label, placeholder, tag) in [
-            ("OpenAI API Key",          "sk-...",      0),
-            ("Google Gemini API Key",   "AIza...",     1),
-            ("Anthropic Claude API Key","sk-ant-...",  2),
+            ("OpenAI API Key",           "sk-...",     0),
+            ("Google Gemini API Key",    "AIza...",    1),
+            ("Anthropic Claude API Key", "sk-ant-...", 2),
         ] {
             let value = [s.openAIKey, s.geminiKey, s.claudeKey][tag]
             let l = sectionLabel(label)
@@ -128,12 +174,14 @@ class SettingsViewController: NSViewController {
             stack.setCustomSpacing(10, after: f)
         }
 
-        let note = NSTextField(labelWithString: "Keys are stored in macOS UserDefaults.")
+        let note = NSTextField(labelWithString: "API keys are stored securely in macOS Keychain.")
         note.font = .systemFont(ofSize: 11)
         note.textColor = .tertiaryLabelColor
         note.translatesAutoresizingMaskIntoConstraints = false
         stack.addArrangedSubview(note)
     }
+
+    // MARK: - Helpers
 
     private func sectionLabel(_ text: String) -> NSTextField {
         let l = NSTextField(labelWithString: text)
@@ -152,6 +200,8 @@ class SettingsViewController: NSViewController {
         return field
     }
 
+    // MARK: - Actions
+
     @objc private func providerChanged(_ sender: NSPopUpButton) {
         if let title = sender.selectedItem?.title, let p = AIProvider(rawValue: title) {
             s.provider = p
@@ -162,13 +212,23 @@ class SettingsViewController: NSViewController {
         let title = sender.selectedItem?.title ?? "None"
         s.defaultTone = (title == "None") ? "" : title
     }
+
+    @objc private func hotkeyToggleChanged(_ sender: NSButton) {
+        s.hotkeyEnabled = sender.state == .on
+        recorderRow?.isHidden = !s.hotkeyEnabled
+        (NSApp.delegate as? AppDelegate)?.refreshHotkey()
+    }
 }
+
+// MARK: - NSWindowDelegate
 
 extension SettingsWindowController: NSWindowDelegate {
     func windowWillClose(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
     }
 }
+
+// MARK: - NSTextFieldDelegate
 
 extension SettingsViewController: NSTextFieldDelegate {
     func controlTextDidChange(_ obj: Notification) {
@@ -180,5 +240,87 @@ extension SettingsViewController: NSTextFieldDelegate {
         case 2: s.claudeKey = value
         default: break
         }
+    }
+}
+
+// MARK: - HotkeyRecorderButton
+
+class HotkeyRecorderButton: NSButton {
+    var onRecorded: ((Int, NSEvent.ModifierFlags) -> Void)?
+    private var keyMonitor: Any?
+    private(set) var isRecording = false
+
+    init() {
+        super.init(frame: .zero)
+        setup()
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    private func setup() {
+        bezelStyle = .roundRect
+        isBordered = false
+        wantsLayer = true
+        layer?.cornerRadius = 6
+        layer?.borderWidth = 1
+        translatesAutoresizingMaskIntoConstraints = false
+        heightAnchor.constraint(equalToConstant: 26).isActive = true
+        target = self
+        action = #selector(clicked)
+        displayPlaceholder()
+        updateBorder()
+    }
+
+    @objc private func clicked() {
+        isRecording ? stopRecording() : startRecording()
+    }
+
+    private func startRecording() {
+        isRecording = true
+        updateBorder()
+        setAttr("Press shortcut…", color: .secondaryLabelColor, size: 12)
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            self?.handleKey(event)
+            return nil
+        }
+    }
+
+    func stopRecording() {
+        isRecording = false
+        updateBorder()
+        if let m = keyMonitor { NSEvent.removeMonitor(m); keyMonitor = nil }
+    }
+
+    private func handleKey(_ event: NSEvent) {
+        if event.keyCode == 53 { stopRecording(); displayPlaceholder(); return }  // Escape
+        let mods = event.modifierFlags.intersection([.command, .option, .shift, .control])
+        guard !mods.isEmpty else { return }
+        onRecorded?(Int(event.keyCode), mods)
+        stopRecording()
+    }
+
+    func display(keyCode: Int, modifiers: NSEvent.ModifierFlags) {
+        setAttr(HotkeyManager.display(keyCode: keyCode, modifiers: modifiers),
+                color: .labelColor, size: 13, mono: true)
+    }
+
+    func displayPlaceholder() {
+        setAttr("Click to record…", color: .tertiaryLabelColor, size: 12)
+    }
+
+    private func setAttr(_ text: String, color: NSColor, size: CGFloat, mono: Bool = false) {
+        let font: NSFont = mono
+            ? .monospacedSystemFont(ofSize: size, weight: .medium)
+            : .systemFont(ofSize: size)
+        attributedTitle = NSAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: color,
+        ])
+    }
+
+    private func updateBorder() {
+        layer?.borderColor = isRecording
+            ? NSColor.controlAccentColor.cgColor
+            : NSColor.separatorColor.cgColor
+        layer?.backgroundColor = NSColor.controlBackgroundColor.withAlphaComponent(0.5).cgColor
     }
 }

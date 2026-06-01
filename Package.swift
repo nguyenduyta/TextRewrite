@@ -7,7 +7,8 @@ let package = Package(
     targets: [
         .executableTarget(
             name: "TextRewriter",
-            path: "Sources/TextRewriter"
+            path: "Sources/TextRewriter",
+            linkerSettings: [.linkedFramework("Carbon")]
         ),
     ]
 )

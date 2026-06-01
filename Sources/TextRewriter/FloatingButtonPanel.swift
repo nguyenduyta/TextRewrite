@@ -74,6 +74,29 @@ class FloatingButtonPanel: NSPanel {
         orderOut(nil)
     }
 
+    func triggerWithCurrentSelection() {
+        let text = SelectionMonitor.shared.currentText
+        guard !text.isEmpty else { return }
+        let element = SelectionMonitor.shared.focusedElement
+        let range   = SelectionMonitor.shared.savedRange
+        let tone    = AISettings.shared.defaultTone
+        let instruction: String? = tone.isEmpty ? nil :
+            "Fix grammar, spelling, and phrasing. Rewrite in a \(tone.lowercased()) tone. Preserve the original language and meaning. Return only the corrected text with no explanation."
+        hide()
+        resultPanel.show(originalText: text, element: element, range: range, defaultTone: tone)
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await AIService.shared.rewriteStreaming(text, instruction: instruction) { chunk in
+                    await MainActor.run { self.resultPanel.appendChunk(chunk) }
+                }
+                await MainActor.run { self.resultPanel.finishStreaming() }
+            } catch {
+                await MainActor.run { self.resultPanel.setError(error.localizedDescription) }
+            }
+        }
+    }
+
     @objc private func rewriteTapped() {
         // Capture element + range BEFORE anything changes focus
         let element  = SelectionMonitor.shared.focusedElement

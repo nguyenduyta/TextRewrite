@@ -45,6 +45,18 @@ class AISettings {
         get { defaults.string(forKey: "defaultTone") ?? "" }
         set { defaults.set(newValue, forKey: "defaultTone") }
     }
+    var hotkeyEnabled: Bool {
+        get { defaults.bool(forKey: "hotkeyEnabled") }
+        set { defaults.set(newValue, forKey: "hotkeyEnabled") }
+    }
+    var hotkeyKeyCode: Int {
+        get { defaults.integer(forKey: "hotkeyKeyCode") }
+        set { defaults.set(newValue, forKey: "hotkeyKeyCode") }
+    }
+    var hotkeyModifiers: UInt {
+        get { UInt(defaults.integer(forKey: "hotkeyModifiers")) }
+        set { defaults.set(Int(bitPattern: newValue), forKey: "hotkeyModifiers") }
+    }
 }
 
 enum AIError: Error, LocalizedError {

@@ -10,6 +10,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         requestAccessibilityIfNeeded()
         setupMenuBar()
         setupMonitor()
+        setupHotkey()
     }
 
     private func requestAccessibilityIfNeeded() {
@@ -37,7 +38,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         monitor.onTextSelected = { [weak self] text, point in
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 let current = SelectionMonitor.shared.currentText
-                guard !current.isEmpty else { return }
+                guard !current.isEmpty, !AISettings.shared.hotkeyEnabled else { return }
                 self?.buttonPanel.show(near: point, with: current)
             }
         }
@@ -47,6 +48,26 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         monitor.start()
+    }
+
+    private func setupHotkey() {
+        HotkeyManager.shared.onHotkeyPressed = { [weak self] in
+            self?.buttonPanel.triggerWithCurrentSelection()
+        }
+        refreshHotkey()
+    }
+
+    func refreshHotkey() {
+        let s = AISettings.shared
+        if s.hotkeyEnabled, s.hotkeyKeyCode > 0 {
+            let mods = NSEvent.ModifierFlags(rawValue: s.hotkeyModifiers)
+            HotkeyManager.shared.register(
+                keyCode: UInt32(s.hotkeyKeyCode),
+                carbonModifiers: HotkeyManager.carbonModifiers(from: mods)
+            )
+        } else {
+            HotkeyManager.shared.unregister()
+        }
     }
 
     @objc private func openSettings() {
